@@ -1,3 +1,11 @@
+config USB_DWC3_HISI
+	bool "Hisilicon USB Platform"
+	depends on USB
+	default y
+	help
+	  Hisilicon SoCs ship with one DesignWare Core USB3 IP inside,
+	  Say 'Y' if you have one such device.
+
 config USB_DWC3
 	tristate "DesignWare USB3 DRD Core Support"
 	depends on (USB || USB_GADGET) && HAS_DMA

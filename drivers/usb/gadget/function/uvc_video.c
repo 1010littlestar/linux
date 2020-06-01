@@ -129,6 +129,26 @@ uvc_video_encode_isoc(struct usb_request *req, struct uvc_video *video,
  * Request handling
  */
 
+static int uvcg_video_ep_queue(struct uvc_video *video, struct usb_request *req)
+{
+	int ret;
+
+	/*
+	 * Fixme, this is just to workaround the warning by udc core when the ep
+	 * is disabled, this may happens when the uvc application is still
+	 * streaming new data while the uvc gadget driver has already recieved
+	 * the streamoff but the streamoff event is not yet received by the app
+	 */
+	if (!video->ep->enabled)
+		return -EINVAL;
+
+	ret = usb_ep_queue(video->ep, req, GFP_ATOMIC);
+	if (ret < 0)
+		printk(KERN_INFO "Failed to queue request (%d).\n", ret);
+
+	return ret;
+}
+
 /*
  * I somehow feel that synchronisation won't be easy to achieve here. We have
  * three events that control USB requests submission:
@@ -193,14 +213,13 @@ uvc_video_complete(struct usb_ep *ep, struct usb_request *req)
 
 	video->encode(req, video, buf);
 
-	if ((ret = usb_ep_queue(ep, req, GFP_ATOMIC)) < 0) {
-		printk(KERN_INFO "Failed to queue request (%d).\n", ret);
-		usb_ep_set_halt(ep);
-		spin_unlock_irqrestore(&video->queue.irqlock, flags);
+	ret = uvcg_video_ep_queue(video, req);
+	spin_unlock_irqrestore(&video->queue.irqlock, flags);
+
+	if (ret < 0) {
 		uvcg_queue_cancel(queue, 0);
 		goto requeue;
 	}
-	spin_unlock_irqrestore(&video->queue.irqlock, flags);
 
 	return;
 
@@ -320,15 +339,13 @@ int uvcg_video_pump(struct uvc_video *video)
 		video->encode(req, video, buf);
 
 		/* Queue the USB request */
-		ret = usb_ep_queue(video->ep, req, GFP_ATOMIC);
+		ret = uvcg_video_ep_queue(video, req);
+		spin_unlock_irqrestore(&queue->irqlock, flags);
+
 		if (ret < 0) {
-			printk(KERN_INFO "Failed to queue request (%d)\n", ret);
-			usb_ep_set_halt(video->ep);
-			spin_unlock_irqrestore(&queue->irqlock, flags);
 			uvcg_queue_cancel(queue, 0);
 			break;
 		}
-		spin_unlock_irqrestore(&queue->irqlock, flags);
 	}
 
 	spin_lock_irqsave(&video->req_lock, flags);
@@ -379,16 +396,22 @@ int uvcg_video_enable(struct uvc_video *video, int enable)
 /*
  * Initialize the UVC video stream.
  */
-int uvcg_video_init(struct uvc_video *video)
+int uvcg_video_init(struct uvc_video *video, struct uvc_device *uvc)
 {
 	INIT_LIST_HEAD(&video->req_free);
 	spin_lock_init(&video->req_lock);
-
+#ifndef CONFIG_HISI_MC
 	video->fcc = V4L2_PIX_FMT_YUYV;
+	video->imagesize = 320 * 240 * 2;
 	video->bpp = 16;
+#else
+	video->fcc = V4L2_PIX_FMT_YUV420;
+	video->imagesize = 320 * 240 * 3 / 2;	/* YUV420: w*h*1.5 */
+	video->bpp = 12;
+#endif
 	video->width = 320;
 	video->height = 240;
-	video->imagesize = 320 * 240 * 2;
+	video->uvc = uvc;
 
 	/* Initialize the video buffers queue. */
 	uvcg_queue_init(&video->queue, V4L2_BUF_TYPE_VIDEO_OUTPUT,
