@@ -898,7 +898,7 @@
 			phyid = <1>;
         };
 
-#if 0
+#if 1
         xhci_0:xhci_0@0x12300000 {
 			compatible = "generic-xhci";
 			reg = <0x12300000 0x10000>;
@@ -912,7 +912,7 @@
 			interrupts = <0 85 4>;
 		};
 #endif
-#if 1
+#if 0
 		hidwc3_0:hiudc3_0@0x12300000 {
 			compatible = "snps,dwc3";
 			reg = <0x12300000 0x10000>;
